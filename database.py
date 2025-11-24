@@ -1,8 +1,17 @@
 import os
+from redis.asyncio import Redis
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-#db_url = "postgresql://postgres:beatrice1129@localhost:5432/postgres"
-db_url = os.getenv('DATABASE_URL',"postgresql+psycopg://postgres:beatrice1129@localhost:5432/postgres")
+db_url = os.getenv('DATABASE_URL', "postgresql+psycopg://myuser:mypassword@db:5432/postgres")
 engine = create_engine(db_url)
 sessionLocal = sessionmaker(autocommit=False, autoflush=False,bind=engine)
+
+REDIS_URL = os.getenv("REDIS_URL", "redis://myuser:mypassword@redis:6379/0")
+
+redis_client = Redis.from_url(REDIS_URL, decode_responses=True)
+
+async def get_redis() -> Redis:
+    return redis_client
+
+

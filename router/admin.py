@@ -41,6 +41,14 @@ def get_db():
 db_dependency = Annotated[Session, Depends(get_db)]
 user_dependency = Annotated[dict,Depends(get_current_user)]
 
+@router.get("/users")
+def get_all_users(user: user_dependency, db: db_dependency):
+    if user is None or user.get('role')!='admin':
+        raise HTTPException(401, detail='Authentication Failed.')
+    
+    db_users = db.query(database_models.Users).all()
+    return db_users
+
 
 @router.put("/users/{id}",status_code = status.HTTP_202_ACCEPTED)
 def change_user_role(user: user_dependency, db: db_dependency, id: int, new_role:str):
@@ -71,11 +79,6 @@ def delete_user(user: user_dependency, db: db_dependency, username: str):
     if db_user.id == 1: # type: ignore
         raise HTTPException(status.HTTP_403_FORBIDDEN,"Cannot delete this user")
     
-    while db.query(database_models.Links).filter(
-        database_models.Links.user_id == db_user.id).first():
-        db.delete(db.query(database_models.Links).filter(
-        database_models.Links.user_id == db_user.id).first())
-        db.commit()
     db.delete(db_user)
     db.commit()
     return "User Deleted"
