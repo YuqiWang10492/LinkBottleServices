@@ -1,9 +1,15 @@
 # Links API
 
-This document describes the 2 HTTP APIs implemented in `links.py` for
+This document describes all APIs implemented in `links.py` for
 
 - Creating a shortened link.
 - Redirecting to the original url using the shortened link.
+- List all links added by a user
+- Delete a shortened link for a user using its original url
+- Delete a shortened link for a user using its short code or alias
+- Automatically fetching the title of a link from original url
+- Generating a QR code for a shortened link
+- WebSocket for batch uploading links.
 
 As well as the Database Schema for to implement the APIs.
 
