@@ -17,6 +17,7 @@ import random
 import hmac
 import hashlib
 import json
+from utils.AWShelper import send_email
 
 class UserRequest(BaseModel):
 
@@ -471,8 +472,15 @@ async def get_otp_code(redis: Annotated[Redis, Depends(get_redis)], email: Email
     
     code = generate_numeric_code(6)
     create_verification_entry(redis, key, code)
+
+    #This requires AWS SES setup
+    send_email(
+        to=email,
+        subject="Your LinkBottle account's One Time Passcode",
+        body=f"Your One Time Passcode is: \n {code}",
+    )
     
-    # Here you would send the code via email/SMS. For now, we just return it.
+    # Right now, also just return the code to frontend.
     return {"detail": "OTP code generated and sent.", "code": code}
 
 @router.post("/create_user/", status_code=status.HTTP_201_CREATED)

@@ -9,7 +9,7 @@ SAFE_BROWSING_URL = (
 )
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
-def check_url_with_google_safe_browsing(url: str) -> Optional[dict]:
+async def check_url_with_google_safe_browsing(url: str) -> Optional[dict]:
     """
     Returns the raw 'matches' dict if the URL is unsafe,
     or None if it appears safe.
@@ -40,7 +40,7 @@ def check_url_with_google_safe_browsing(url: str) -> Optional[dict]:
     # If there are matches, it's unsafe
     return data.get("matches")
 
-def classify_url_with_openai(url: str):
+async def classify_url_with_openai(url: str):
     prompt = f"""
         You are a security classifier. Analyze this URL and return ONLY a JSON object.
 

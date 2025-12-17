@@ -15,7 +15,7 @@ import httpx
 import json
 import base64
 import io
-from utils.qrcode import generate_qr_code, upload_qr_to_s3
+from utils.AWShelper import generate_qr_code, upload_qr_to_s3
 from security.safebrowsing import check_url_with_google_safe_browsing, classify_url_with_openai
 
 from pydantic import BaseModel, HttpUrl, Field, constr
@@ -197,12 +197,12 @@ async def shorten_link(user: user_dependency, db: db_dependency, link: LinkReque
 
     return data
 
-def link_safety_check(url: str):
-    threat = check_url_with_google_safe_browsing(url)
+async def link_safety_check(url: str):
+    threat = await check_url_with_google_safe_browsing(url)
     if threat:
         raise HTTPException(400, detail="The provided URL is flagged as unsafe.")
     
-    classify = classify_url_with_openai(url)
+    classify = await classify_url_with_openai(url)
     category = classify["category"]
 
     if category in ("spam", "scam_or_phishing", "extremely_high_risk"):
@@ -225,7 +225,7 @@ async def create_link_for_user(db: Session, user, link: LinkRequest) -> database
             database_models.userLinks.link_id == link_check.id,
         ).first()
         if user_link_check:
-            raise HTTPException(409,detail="You already have a link for this URL.")
+            return link_check  # User already has this link
 
     if link.alias: #custom alias provided
         
@@ -240,7 +240,7 @@ async def create_link_for_user(db: Session, user, link: LinkRequest) -> database
                              link.title if link.title else link_check.title, db)
             return link_check
         
-        link_safety_check(long_url)
+        await link_safety_check(long_url)
         title = await fetch_title(long_url)
         link_model = database_models.Links(
         original_url = long_url, 
@@ -264,7 +264,7 @@ async def create_link_for_user(db: Session, user, link: LinkRequest) -> database
             database_models.Links.short_code == short_code).first():
             short_code = getString() 
         
-        link_safety_check(long_url)
+        await link_safety_check(long_url)
         title = await fetch_title(long_url)
         link_model = database_models.Links(
         original_url = long_url, 
@@ -273,6 +273,7 @@ async def create_link_for_user(db: Session, user, link: LinkRequest) -> database
     
     key = link_model.short_code if link_model.short_code else link_model.alias
     if link.generate_qr and not link_model.qr_code_path:
+        #generates QR code and uploads to AWS S3
         qr_code_img = generate_qr_code(f"http://{API_URL}{key}")
         qr_s3_url = upload_qr_to_s3(key, qr_code_img.getvalue())
         link_model.qr_code_path = qr_s3_url
@@ -400,18 +401,18 @@ async def ws_batch_upload(websocket: WebSocket, db: Session = Depends(get_db), r
             token = token.split(" ", 1)[1]
 
     if not token:
-        await websocket.close(code=1008, reason="Missing token")
+        await websocket.close(code=1008, reason="Authentication failed")
         return
 
     try:
         user = decode_user_from_token(token)  # already returns username/id/role
     except HTTPException:
-        await websocket.close(code=1008, reason="Invalid token")
+        await websocket.close(code=1008, reason="Authentication failed")
         return
 
     user_id = user["id"]
     if not user_id:
-        await websocket.close(code=1008, reason="Invalid user id")
+        await websocket.close(code=1008, reason="Authentication failed")
         return
 
     await websocket.accept()
@@ -482,6 +483,15 @@ async def ws_batch_upload(websocket: WebSocket, db: Session = Depends(get_db), r
             elif mtype == "finish":
                 await websocket.send_json({
                     "type": "finished",
+                    "processed": processed,
+                    "total": total,
+                })
+                await websocket.close()
+                return
+            
+            elif mtype == "cancel":
+                await websocket.send_json({
+                    "type": "cancelled",
                     "processed": processed,
                     "total": total,
                 })
