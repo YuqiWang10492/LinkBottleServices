@@ -45,7 +45,6 @@ def link_to_dict(link: database_models.Links) -> dict:
         "id": link.id,
         "alias": link.alias,
         "original_url": link.original_url,
-        "user_id": link.user_id,
         "title": link.title,
         "short_code": link.short_code,
         "short_url": link.short_url,
@@ -142,7 +141,7 @@ def get_link_qrcode(user: user_dependency, db: db_dependency, key:str, redis: Re
         data = link_to_dict(db_link)
         redis.set(cache_key, json.dumps(data), ex=CACHE_TTL_SECONDS)
     
-    qr_code_img = generate_qr_code('http://'+ data['short_url'])
+    qr_code_img = generate_qr_code(data['original_url'])
 
     # Cache the QR code image in base64
     qr_code_base64 = base64.b64encode(qr_code_img.getvalue()).decode('ascii')
@@ -181,8 +180,6 @@ def go_to_link( db: db_dependency, key:str, redis: Redis = Depends(get_redis)):
     redis.incr(click_counter_key(db_link.id))  #
     redis.sadd(DIRTY_SET_KEY, db_link.id)  #
     #delete cache for user links list
-    if db_link.user_id: #  
-        redis.delete(links_user(db_link.user_id))  #  
 
     return RedirectResponse(db_link.original_url) #  
     
@@ -194,7 +191,9 @@ async def shorten_link(user: user_dependency, db: db_dependency, link: LinkReque
     data = link_to_dict(link_model)
 
     # Invalidate user's list
-    redis.delete(links_user(link_model.user_id))
+    user_id = user.get('id')
+    assert user_id is not None
+    redis.delete(links_user(user_id))
     # Populate single-link cache
     redis.set(link_key(link_model.short_code if link_model.short_code else link_model.alias 
                              ), json.dumps(data), ex=CACHE_TTL_SECONDS) #  
@@ -210,10 +209,14 @@ async def create_link_for_user(db: Session, user, link: LinkRequest) -> database
     
     #check for existing link with same URL
     link_check = db.query(database_models.Links).filter(
-        (database_models.Links.original_url == str(link.original_url)),
-        (database_models.Links.user_id == user_id)).first()
+        database_models.Links.original_url == str(link.original_url)).first()
     if link_check:
-        raise HTTPException(409,detail="You already have a link for this URL.")
+        user_link_check = db.query(database_models.userLinks).filter(
+            database_models.userLinks.user_id == user_id,
+            database_models.userLinks.link_id == link_check.id,
+        ).first()
+        if user_link_check:
+            raise HTTPException(409,detail="You already have a link for this URL.")
 
     if link.alias: #custom alias provided
         
@@ -223,15 +226,13 @@ async def create_link_for_user(db: Session, user, link: LinkRequest) -> database
         if link_check:
             if str(link.original_url) != link_check.original_url:
                 raise HTTPException(409,detail="A different Link already uses this alias.")
-            if link_check.user_id == user_id:
-                raise HTTPException(409,detail="You have already created this link.")
             #same link already exists for different user, just link it to this user
             add_link_to_user(user_id, link_check.id, link.title if link.title else link_check.title, db)
             return link_check
         
         title = await fetch_title(str(link.original_url))
         link_model = database_models.Links(
-        original_url = str(link.original_url), user_id = user_id, 
+        original_url = str(link.original_url), 
         title = title, short_code = None, alias = link.alias,
         created_at=timestamp, short_url = API_URL + link.alias)
     
@@ -252,7 +253,7 @@ async def create_link_for_user(db: Session, user, link: LinkRequest) -> database
         
         title = await fetch_title(str(link.original_url))
         link_model = database_models.Links(
-        original_url = str(link.original_url), user_id = user_id, 
+        original_url = str(link.original_url), 
         title = title, short_code = short_code, alias = None,
         created_at=timestamp, short_url = API_URL + short_code)
     
@@ -275,12 +276,11 @@ async def create_link_for_user(db: Session, user, link: LinkRequest) -> database
 #     user_id = user.get('id')
 #     assert user_id is not None
 #     db_link = db.query(database_models.Links).filter(
-#         (database_models.Links.short_code == key),
-#         database_models.Links.user_id == user_id).first()
+#         database_models.Links.short_code == key).first()
 #     if db_link:
 #         link_check = db.query(database_models.Links).filter(
 #             (database_models.Links.alias == link.alias)|(database_models.Links.short_code == link.alias)
-#             |((database_models.Links.original_url == str(link.original_url)) & (database_models.Links.user_id == user_id)), 
+#             |(database_models.Links.original_url == str(link.original_url))), 
 #             database_models.Links.id != db_link.id
 #             ).first()
 #         if link_check:
@@ -303,29 +303,8 @@ async def create_link_for_user(db: Session, user, link: LinkRequest) -> database
 #     #return "Link not found"
 #     raise HTTPException(404,"Link not found")
 
-@router.delete("/by_url/",status_code=status.HTTP_200_OK)
-def delete_link_by_url(user: user_dependency, url:str, db:Session = Depends(get_db), redis: Redis = Depends(get_redis)):
-    if not user:
-        raise HTTPException(401, detail='Authentication Failed.')
-
-    user_id = user.get('id')
-    assert user_id is not None
-    db_link = db.query(database_models.Links).filter(
-        database_models.Links.original_url == url).filter(
-            database_models.Links.user_id == user_id).first()
-    if db_link:
-        db.delete(db_link)
-        db.commit()
-
-        # Invalidate caches
-        redis.delete(links_user(user_id)) #  
-        redis.delete(link_key(db_link.short_code)) #  
-        return "Link deleted"
-    #return "Link not found"
-    raise HTTPException(404,"Link not found")
-
 @router.delete("/by_key/",status_code=status.HTTP_200_OK)
-def delete_link_by_key(user: user_dependency, key:str, db:Session = Depends(get_db), redis: Redis = Depends(get_redis)):
+async def delete_link_by_key(user: user_dependency, key:str, db:Session = Depends(get_db), redis: Redis = Depends(get_redis)):
     if not user:
         raise HTTPException(401, detail='Authentication Failed.')
 
@@ -334,15 +313,34 @@ def delete_link_by_key(user: user_dependency, key:str, db:Session = Depends(get_
     assert user_id is not None
     db_link = db.query(database_models.Links).filter(
         (database_models.Links.short_code == key)|
-        (database_models.Links.alias == key),
-        database_models.Links.user_id == user_id).first()
+        (database_models.Links.alias == key)).first()
     if db_link:
-        db.delete(db_link)
-        db.commit()
+        user_link = db.query(database_models.userLinks).filter(
+        database_models.userLinks.user_id == user_id,
+        database_models.userLinks.link_id == db_link.id,
+        ).first()
 
+        if not user_link:
+            # Link exists globally, but this user doesn't have it in their list
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Link not found for this user")
+
+        # Delete ONLY the user_link row
+        db.delete(user_link)
+        db.commit()
         # Invalidate caches
         redis.delete(links_user(user_id))
-        redis.delete(link_key(db_link.short_code))
+
+        remaining = db.query(database_models.userLinks).filter(
+            database_models.userLinks.link_id == db_link.id
+        ).count()
+
+        if remaining == 0:
+            db.delete(db_link)
+            db.commit()
+
+            redis.delete(link_key(db_link.short_code))
+            redis.delete(link_key(db_link.alias))
+
         return "Link deleted"
     #return "Link not found"
     raise HTTPException(404,"Link not found")

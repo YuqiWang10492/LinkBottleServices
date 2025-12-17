@@ -11,3 +11,5 @@ bs4
 httpx
 redis
 qrcode[pil]
+authlib
+itsdangerous

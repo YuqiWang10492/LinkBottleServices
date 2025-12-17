@@ -1,4 +1,6 @@
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.sessions import SessionMiddleware
+import os
 #------------------------------------
 #python throws error if I don't inline models.py
 from fastapi import FastAPI
@@ -14,6 +16,7 @@ app.add_middleware(
     allow_headers = ["*"],
     allow_credentials = True
     )
+app.add_middleware(SessionMiddleware, os.getenv("MIDDLEWARE_SECRET", "supersecretkey"))
 
 database_models.Base.metadata.create_all(bind=engine)
 

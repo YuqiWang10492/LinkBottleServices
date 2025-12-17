@@ -2,7 +2,7 @@ import time
 from redis import Redis
 from sqlalchemy.orm import Session
 from utils import database_models
-from .database import redis_client, sessionLocal
+from utils.database import redis_client, sessionLocal
 
 DIRTY_SET_KEY = "click_dirty_links"
 

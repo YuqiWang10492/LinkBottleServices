@@ -9,15 +9,16 @@ class Users(Base):
     __tablename__ = "users"
 
     id =  mapped_column(Integer, primary_key=True, index=True)
-    email =  mapped_column(String, unique= True)
-    username =  mapped_column(String, unique= True)
-    first_name =  mapped_column(String)
-    last_name =  mapped_column(String)
+    email =  mapped_column(String, unique= True, nullable=True)
+    username =  mapped_column(String, unique= True, nullable=False)
+    first_name =  mapped_column(String, nullable=True)
+    last_name =  mapped_column(String, nullable=True)
     hashed_password =  mapped_column(String)
     is_active =  mapped_column(Boolean, default=True)
     role =  mapped_column(String)
     phone_number =  mapped_column(String, nullable=True)
-
+    google_sub = mapped_column(String, unique=True, nullable=True)
+    github_id = mapped_column(String, unique=True, nullable=True)
 
 
 class Links(Base):
@@ -32,7 +33,6 @@ class Links(Base):
     short_url =  mapped_column(String, unique=True, nullable=False)
     created_at =  mapped_column(TIMESTAMP)
     clicks =  mapped_column(Integer, default=0)
-    user_id =  mapped_column(Integer, ForeignKey('users.id', ondelete="SET NULL"), nullable=True, index=True)
     
 
 class userLinks(Base):
